@@ -16,6 +16,9 @@ BASEIMAGENAMESPACE=goharbor
 #versions
 REGISTRYVERSION=v2.8.0-patch-redis
 
+# version of registry for pulling the source code
+REGISTRY_SRC_TAG=v2.8.0
+
 # dependency binaries
 
 
@@ -44,7 +47,8 @@ compile_standalone_db_migrator:
 	@$(DOCKERCMD) run --rm -v $(BUILDPATH):$(GOBUILDPATHINCONTAINER) -w $(GOBUILDPATH_STANDALONE_DB_MIGRATOR) $(GOBUILDIMAGE)
 
 build:
-	make -f $(MAKEFILEPATH_PHOTON)/Makefile $(BUILD)
+	make -f $(MAKEFILEPATH_PHOTON)/Makefile $(BUILDTARGET) \
+	-e REGISTRYVERSION=$(REGISTRYVERSION) -e REGISTRY_SRC_TAG=$(REGISTRY_SRC_TAG)
 
 build_base_docker:
 	@for name in $(BUILDBASETARGET); do \

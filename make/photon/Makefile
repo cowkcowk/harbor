@@ -19,4 +19,12 @@ DOCKERFILEPATH_REG=$(DOCKERFILEPATH)/$(REGISTRY)
 DOCKERFILENAME_REG=Dockerfile
 DOCKERIMAGENAME_REG=$(IMAGENAMESPACE)/$(REGISTRY)-photon
 
-_build_registry
+_build_registry:
+	cd $(DOCKERFILEPATH_REG) && $(DOCKERFILEPATH_REG)/builder $(REGISTRY_SRC_TAG) && cd - ;
+	
+
+define _build_base
+
+endef
+
+build: _build_registry

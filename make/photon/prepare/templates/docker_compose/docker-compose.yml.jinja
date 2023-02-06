@@ -1,0 +1,8 @@
+version: '2.3'
+services:
+
+  postgresql:
+    image: goharbor/harbor-db:{{version}}
+    container_name: harbor-db
+    restart: always
+    
