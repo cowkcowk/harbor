@@ -2,12 +2,22 @@ SHELL := /bin/bash
 BUILDPATH=$(CURDIR)
 MAKEPATH=$(BUILDPATH)/make
 
+# parameters
+
+BUILDTARGET=build
+
 # version prepare
 # for docker image tag
 
 BASEIMAGETAG=dev
-BUILDBASETARGET=db
+BUILDBASETARGET=registry
 BASEIMAGENAMESPACE=goharbor
+
+#versions
+REGISTRYVERSION=v2.8.0-patch-redis
+
+# dependency binaries
+
 
 # docker parameters
 DOCKERCMD=$(shell which docker)
@@ -33,8 +43,12 @@ compile_standalone_db_migrator:
 	@echo "compiling binary for standalone db migrator (golang image)..."
 	@$(DOCKERCMD) run --rm -v $(BUILDPATH):$(GOBUILDPATHINCONTAINER) -w $(GOBUILDPATH_STANDALONE_DB_MIGRATOR) $(GOBUILDIMAGE)
 
+build:
+	make -f $(MAKEFILEPATH_PHOTON)/Makefile $(BUILD)
+
 build_base_docker:
 	@for name in $(BUILDBASETARGET); do \
 		echo $$name ; \
+		sleep 1 ; \
 		$(DOCKERBUILD) --pull --no-cache -f $(MAKEFILEPATH_PHOTON)/$$name/Dockerfile.base -t $(BASEIMAGENAMESPACE)/harbor-$$name-base:$(BASEIMAGETAG) --label base-build-date=$(date +"%Y%m%d") . ; \
 	done
