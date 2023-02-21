@@ -8,9 +8,11 @@ require (
 )
 
 require (
+	github.com/FZambia/sentinel v1.1.1
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/gomodule/redigo v2.0.0+incompatible
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
