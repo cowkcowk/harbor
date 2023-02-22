@@ -10,7 +10,7 @@ BUILDTARGET=build
 # for docker image tag
 
 BASEIMAGETAG=dev
-BUILDBASETARGET=registry
+BUILDBASETARGET=prepare
 BASEIMAGENAMESPACE=goharbor
 
 #versions
@@ -39,6 +39,9 @@ GOBUILDMAKEPATH=make
 
 # makefile
 MAKEFILEPATH_PHOTON=$(MAKEPATH)/photon
+
+# docker image name
+DOCKER_IMAGE_NAME_PREPARE=$(IMAGENAMESPACE)/prepare
 
 GOBUILDPATH_STANDALONE_DB_MIGRATOR=$(GOBUILDPATHINCONTAINER)/src/cmd/standalone-db-migrator
 

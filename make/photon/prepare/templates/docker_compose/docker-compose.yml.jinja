@@ -5,4 +5,18 @@ services:
     image: goharbor/harbor-db:{{version}}
     container_name: harbor-db
     restart: always
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    volumes:
+      - {{data_volume}}/database:/var/lib/postgresql/data:z
+    networks:
+      harbor:
+    env_file:
+      - ./common/config/db/env
+      
     
