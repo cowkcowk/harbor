@@ -18,3 +18,20 @@ securityDefinitions:
 security:
   - basic: []
   - {}
+paths:
+  /health:
+    get:
+      summary: Check the status of Harbor components
+      description: Check the status of Harbor components. This path does not require authentication.
+      tags:
+        - health
+      operationId: getHealth
+      parameters:
+        - $ref: '#/parameters/requestId'
+      responses:
+        '200':
+          description: The health status of Harbor components
+          schema:
+            $ref: '#/definitions/OverallHealthStatus'
+        '500':
+          $ref: '#/responses/500'

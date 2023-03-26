@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package log
+package version
 
-// Formatter formats records in different ways: text, json, etc.
-type Formatter interface {
-	Format(*Record) ([]byte, error)
-}
+// ReleaseVersion is the content of VERSION, which contains the target release version, like v1.10.0
+var ReleaseVersion string
+
+// GitCommit is the git commit id with length of 8 characters
+var GitCommit string
