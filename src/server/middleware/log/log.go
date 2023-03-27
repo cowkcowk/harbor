@@ -3,8 +3,8 @@ package log
 import (
 	"net/http"
 
-	"github.com/cowkcowk/harbor/src/lib/log"
-	"github.com/cowkcowk/harbor/src/server/middleware"
+	"github.com/goharbor/harbor/src/lib/log"
+	"github.com/goharbor/harbor/src/server/middleware"
 )
 
 // Middleware middleware which add logger to context

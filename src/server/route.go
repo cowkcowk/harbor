@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/cowkcowk/harbor/src/server/router"
+	"github.com/goharbor/harbor/src/server/router"
 )
 
 func registerRoutes() {

@@ -3,7 +3,7 @@ package readonly
 import (
 	"net/http"
 
-	"github.com/cowkcowk/harbor/src/server/middleware"
+	"github.com/goharbor/harbor/src/server/middleware"
 )
 
 // Config defines the config for ReadOnly middleware.

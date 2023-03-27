@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/cowkcowk/harbor/src/server/middleware"
+	"github.com/goharbor/harbor/src/server/middleware"
 )
 
 // HeaderXRequestID X-Request-ID header

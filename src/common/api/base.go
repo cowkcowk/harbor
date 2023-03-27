@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/beego/beego/v2/server/web"
 
-	"github.com/cowkcowk/harbor/src/lib/log"
+	lib_http "github.com/goharbor/harbor/src/lib/http"
+	"github.com/goharbor/harbor/src/lib/log"
 )
 
 const (
@@ -29,6 +31,11 @@ func (b *BaseApi) GetStringFromPath(key string) string {
 	return b.Ctx.Input.Param(key)
 }
 
+func (b *BaseApi) GetInt64FromPath(key string) (int64, error) {
+	value := b.Ctx.Input.Param(key)
+	return strconv.ParseInt(value, 10, 64)
+}
+
 func (b *BaseApi) Render() error {
 	return nil
 }
@@ -38,4 +45,8 @@ func (b *BaseApi) DecodeJSONReq(v interface{}) error {
 	if err != nil {
 		log.Errorf()
 	}
+}
+
+func (b *BaseApi) SendError(err error) {
+	lib_http.SendError(b.Ctx.ResponseWriter, err)
 }

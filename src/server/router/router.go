@@ -8,7 +8,7 @@ import (
 	"github.com/beego/beego/v2/server/web"
 	beegocontext "github.com/beego/beego/v2/server/web/context"
 
-	"github.com/cowkcowk/harbor/src/server/middleware"
+	"github.com/goharbor/harbor/src/server/middleware"
 )
 
 // ContextKeyInput ...

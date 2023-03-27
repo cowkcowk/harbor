@@ -11,7 +11,7 @@ import (
 	"github.com/FZambia/sentinel"
 	"github.com/gomodule/redigo/redis"
 
-	"github.com/cowkcowk/harbor/src/lib/log"
+	"github.com/goharbor/harbor/src/lib/log"
 )
 
 var knownPool sync.Map
