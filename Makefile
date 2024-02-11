@@ -77,7 +77,6 @@ CHECKENVCMD=checkenv.sh
 REGISTRYSERVER=
 REGISTRYPROJECTNAME=goharbor
 DEVFLAG=true
-NOTARYFLAG=false
 TRIVYFLAG=false
 HTTPPROXY=
 BUILDBIN=true
@@ -92,7 +91,7 @@ VERSIONTAG=dev
 BUILD_BASE=true
 PUSHBASEIMAGE=false
 BASEIMAGETAG=dev
-BUILDBASETARGET=trivy-adapter core db jobservice log nginx notary-server notary-signer portal prepare redis registry registryctl exporter
+BUILDBASETARGET=trivy-adapter core db jobservice log nginx portal prepare redis registry registryctl exporter
 IMAGENAMESPACE=goharbor
 BASEIMAGENAMESPACE=goharbor
 # #input true/false only
@@ -104,17 +103,14 @@ PKGVERSIONTAG=dev
 PREPARE_VERSION_NAME=versions
 
 #versions
-REGISTRYVERSION=v2.8.0-patch-redis
-NOTARYVERSION=v0.6.1
-NOTARYMIGRATEVERSION=v4.11.0
-TRIVYVERSION=v0.37.2
-TRIVYADAPTERVERSION=v0.30.7
+REGISTRYVERSION=v2.8.3-patch-redis
+TRIVYVERSION=v0.47.0
+TRIVYADAPTERVERSION=v0.30.19
 
 # version of registry for pulling the source code
-REGISTRY_SRC_TAG=v2.8.0
+REGISTRY_SRC_TAG=v2.8.3
 
 # dependency binaries
-NOTARYURL=https://storage.googleapis.com/harbor-builds/bin/notary/release-${NOTARYVERSION}/binary-bundle.tgz
 REGISTRYURL=https://storage.googleapis.com/harbor-builds/bin/registry/release-${REGISTRYVERSION}/registry
 TRIVY_DOWNLOAD_URL=https://github.com/aquasecurity/trivy/releases/download/$(TRIVYVERSION)/trivy_$(TRIVYVERSION:v%=%)_Linux-64bit.tar.gz
 TRIVY_ADAPTER_DOWNLOAD_URL=https://github.com/aquasecurity/harbor-scanner-trivy/releases/download/$(TRIVYADAPTERVERSION)/harbor-scanner-trivy_$(TRIVYADAPTERVERSION:v%=%)_Linux_x86_64.tar.gz
@@ -122,7 +118,6 @@ TRIVY_ADAPTER_DOWNLOAD_URL=https://github.com/aquasecurity/harbor-scanner-trivy/
 define VERSIONS_FOR_PREPARE
 VERSION_TAG: $(VERSIONTAG)
 REGISTRY_VERSION: $(REGISTRYVERSION)
-NOTARY_VERSION: $(NOTARYVERSION)
 TRIVY_VERSION: $(TRIVYVERSION)
 TRIVY_ADAPTER_VERSION: $(TRIVYADAPTERVERSION)
 endef
@@ -145,14 +140,14 @@ GOINSTALL=$(GOCMD) install
 GOTEST=$(GOCMD) test
 GODEP=$(GOTEST) -i
 GOFMT=gofmt -w
-GOBUILDIMAGE=golang:1.19.4
+GOBUILDIMAGE=golang:1.21.5
 GOBUILDPATHINCONTAINER=/harbor
 
 # go build
 PKG_PATH=github.com/goharbor/harbor/src/pkg
 GITCOMMIT := $(shell git rev-parse --short=8 HEAD)
 RELEASEVERSION := $(shell cat VERSION)
-GOFLAGS=
+GOFLAGS="-buildvcs=false"
 GOTAGS=$(if $(GOBUILDTAGS),-tags "$(GOBUILDTAGS)",)
 GOLDFLAGS=$(if $(GOBUILDLDFLAGS),--ldflags "-w -s $(GOBUILDLDFLAGS)",)
 CORE_LDFLAGS=-X $(PKG_PATH)/version.GitCommit=$(GITCOMMIT) -X $(PKG_PATH)/version.ReleaseVersion=$(RELEASEVERSION)
@@ -161,7 +156,7 @@ ifneq ($(GOBUILDLDFLAGS),)
 endif
 
 # go build command
-GOIMAGEBUILDCMD=/usr/local/go/bin/go build -mod vendor
+GOIMAGEBUILDCMD=/usr/local/go/bin/go build
 GOIMAGEBUILD_COMMON=$(GOIMAGEBUILDCMD) $(GOFLAGS) ${GOTAGS} ${GOLDFLAGS}
 GOIMAGEBUILD_CORE=$(GOIMAGEBUILDCMD) $(GOFLAGS) ${GOTAGS} --ldflags "-w -s $(CORE_LDFLAGS)"
 
@@ -175,7 +170,6 @@ GOBUILDMAKEPATH=make
 GOBUILDMAKEPATH_CORE=$(GOBUILDMAKEPATH)/photon/core
 GOBUILDMAKEPATH_JOBSERVICE=$(GOBUILDMAKEPATH)/photon/jobservice
 GOBUILDMAKEPATH_REGISTRYCTL=$(GOBUILDMAKEPATH)/photon/registryctl
-GOBUILDMAKEPATH_NOTARY=$(GOBUILDMAKEPATH)/photon/notary
 GOBUILDMAKEPATH_STANDALONE_DB_MIGRATOR=$(GOBUILDMAKEPATH)/photon/standalone-db-migrator
 GOBUILDMAKEPATH_EXPORTER=$(GOBUILDMAKEPATH)/photon/exporter
 
@@ -186,7 +180,6 @@ JOBSERVICEBINARYPATH=$(BUILDPATH)/$(GOBUILDMAKEPATH_JOBSERVICE)
 JOBSERVICEBINARYNAME=harbor_jobservice
 REGISTRYCTLBINARYPATH=$(BUILDPATH)/$(GOBUILDMAKEPATH_REGISTRYCTL)
 REGISTRYCTLBINARYNAME=harbor_registryctl
-MIGRATEPATCHBINARYPATH=$(BUILDPATH)/$(GOBUILDMAKEPATH_NOTARY)
 MIGRATEPATCHBINARYNAME=migrate-patch
 STANDALONE_DB_MIGRATOR_BINARYPATH=$(BUILDPATH)/$(GOBUILDMAKEPATH_STANDALONE_DB_MIGRATOR)
 STANDALONE_DB_MIGRATOR_BINARYNAME=migrate
@@ -196,15 +189,116 @@ CONFIGPATH=$(MAKEPATH)
 INSIDE_CONFIGPATH=/compose_location
 CONFIGFILE=harbor.yml
 
-
+# prepare parameters
+PREPAREPATH=$(TOOLSPATH)
+PREPARECMD=prepare
+PREPARECMD_PARA=--conf $(INSIDE_CONFIGPATH)/$(CONFIGFILE)
+ifeq ($(TRIVYFLAG), true)
+	PREPARECMD_PARA+= --with-trivy
+endif
 
 # makefile
 MAKEFILEPATH_PHOTON=$(MAKEPATH)/photon
 
+# common dockerfile
+DOCKERFILEPATH_COMMON=$(MAKEPATH)/common
+
 # docker image name
 DOCKER_IMAGE_NAME_PREPARE=$(IMAGENAMESPACE)/prepare
+DOCKERIMAGENAME_PORTAL=$(IMAGENAMESPACE)/harbor-portal
+DOCKERIMAGENAME_CORE=$(IMAGENAMESPACE)/harbor-core
+DOCKERIMAGENAME_JOBSERVICE=$(IMAGENAMESPACE)/harbor-jobservice
+DOCKERIMAGENAME_LOG=$(IMAGENAMESPACE)/harbor-log
+DOCKERIMAGENAME_DB=$(IMAGENAMESPACE)/harbor-db
+DOCKERIMAGENAME_REGCTL=$(IMAGENAMESPACE)/harbor-registryctl
+DOCKERIMAGENAME_EXPORTER=$(IMAGENAMESPACE)/harbor-exporter
 
-GOBUILDPATH_STANDALONE_DB_MIGRATOR=$(GOBUILDPATHINCONTAINER)/src/cmd/standalone-db-migrator
+# docker-compose files
+DOCKERCOMPOSEFILEPATH=$(MAKEPATH)
+DOCKERCOMPOSEFILENAME=docker-compose.yml
+
+SEDCMD=$(shell which sed)
+SEDCMDI=$(SEDCMD) -i
+ifeq ($(shell uname),Darwin)
+    SEDCMDI=$(SEDCMD) -i ''
+endif
+
+# package
+TARCMD=$(shell which tar)
+ZIPCMD=$(shell which gzip)
+DOCKERIMGFILE=harbor
+HARBORPKG=harbor
+
+# pull/push image
+PUSHSCRIPTPATH=$(MAKEPATH)
+PUSHSCRIPTNAME=pushimage.sh
+REGISTRYUSER=
+REGISTRYPASSWORD=
+
+# cmds
+DOCKERSAVE_PARA=$(DOCKER_IMAGE_NAME_PREPARE):$(VERSIONTAG) \
+		$(DOCKERIMAGENAME_PORTAL):$(VERSIONTAG) \
+		$(DOCKERIMAGENAME_CORE):$(VERSIONTAG) \
+		$(DOCKERIMAGENAME_LOG):$(VERSIONTAG) \
+		$(DOCKERIMAGENAME_DB):$(VERSIONTAG) \
+		$(DOCKERIMAGENAME_JOBSERVICE):$(VERSIONTAG) \
+		$(DOCKERIMAGENAME_REGCTL):$(VERSIONTAG) \
+		$(DOCKERIMAGENAME_EXPORTER):$(VERSIONTAG) \
+		$(IMAGENAMESPACE)/redis-photon:$(VERSIONTAG) \
+		$(IMAGENAMESPACE)/nginx-photon:$(VERSIONTAG) \
+		$(IMAGENAMESPACE)/registry-photon:$(VERSIONTAG)
+
+PACKAGE_OFFLINE_PARA=-zcvf harbor-offline-installer-$(PKGVERSIONTAG).tgz \
+					$(HARBORPKG)/$(DOCKERIMGFILE).$(VERSIONTAG).tar.gz \
+					$(HARBORPKG)/prepare \
+					$(HARBORPKG)/LICENSE $(HARBORPKG)/install.sh \
+					$(HARBORPKG)/common.sh \
+					$(HARBORPKG)/harbor.yml.tmpl
+
+PACKAGE_ONLINE_PARA=-zcvf harbor-online-installer-$(PKGVERSIONTAG).tgz \
+					$(HARBORPKG)/prepare \
+					$(HARBORPKG)/LICENSE \
+					$(HARBORPKG)/install.sh \
+					$(HARBORPKG)/common.sh \
+					$(HARBORPKG)/harbor.yml.tmpl
+
+DOCKERCOMPOSE_FILE_OPT=-f $(DOCKERCOMPOSEFILEPATH)/$(DOCKERCOMPOSEFILENAME)
+
+ifeq ($(TRIVYFLAG), true)
+	DOCKERSAVE_PARA+= $(IMAGENAMESPACE)/trivy-adapter-photon:$(VERSIONTAG)
+endif
+
+
+RUNCONTAINER=$(DOCKERCMD) run --rm -u $(shell id -u):$(shell id -g) -v $(BUILDPATH):$(BUILDPATH) -w $(BUILDPATH)
+
+# $1 the name of the docker image
+# $2 the tag of the docker image
+# $3 the command to build the docker image
+define prepare_docker_image
+	@if [ "$(shell ${DOCKERIMAGES} -q $(1):$(2) 2> /dev/null)" == "" ]; then \
+		$(3) && echo "build $(1):$(2) successfully" || (echo "build $(1):$(2) failed" && exit 1) ; \
+	fi
+endef
+
+SWAGGER_IMAGENAME=$(IMAGENAMESPACE)/swagger
+SWAGGER_VERSION=v0.25.0
+SWAGGER=$(RUNCONTAINER) ${SWAGGER_IMAGENAME}:${SWAGGER_VERSION}
+SWAGGER_GENERATE_SERVER=${SWAGGER} generate server --template-dir=$(TOOLSPATH)/swagger/templates --exclude-main --additional-initialism=CVE --additional-initialism=GC --additional-initialism=OIDC
+SWAGGER_IMAGE_BUILD_CMD=${DOCKERBUILD} -f ${TOOLSPATH}/swagger/Dockerfile --build-arg GOLANG=${GOBUILDIMAGE} --build-arg SWAGGER_VERSION=${SWAGGER_VERSION} -t ${SWAGGER_IMAGENAME}:$(SWAGGER_VERSION) .
+
+# $1 the path of swagger spec
+# $2 the path of base directory for generating the files
+# $3 the name of the application
+define swagger_generate_server
+	@echo "generate all the files for API from $(1)"
+	@rm -rf $(2)/{models,restapi}
+	@mkdir -p $(2)
+	@$(SWAGGER_GENERATE_SERVER) -f $(1) -A $(3) --target $(2)
+endef
+
+gen_apis:
+	$(call prepare_docker_image,${SWAGGER_IMAGENAME},${SWAGGER_VERSION},${SWAGGER_IMAGE_BUILD_CMD})
+	$(call swagger_generate_server,api/v2.0/swagger.yaml,src/server/v2.0,harbor)
 
 compile_standalone_db_migrator:
 	@echo "compiling binary for standalone db migrator (golang image)..."
