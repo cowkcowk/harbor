@@ -17,6 +17,8 @@ package metadata
 import (
 	"context"
 
+	"github.com/goharbor/harbor/src/lib/orm"
+	"github.com/goharbor/harbor/src/lib/q"
 	"github.com/goharbor/harbor/src/pkg/project/metadata/dao"
 	"github.com/goharbor/harbor/src/pkg/project/metadata/models"
 )
@@ -39,6 +41,11 @@ type Manager interface {
 	List(ctx context.Context, name, value string) ([]*models.ProjectMetadata, error)
 }
 
+// New returns a default implementation of Manager
+func New() Manager {
+	return &manager{dao: dao.New()}
+}
+
 type manager struct {
 	dao dao.DAO
 }
@@ -46,6 +53,69 @@ type manager struct {
 // Add metadatas for project specified by projectID
 func (m *manager) Add(ctx context.Context, projectID int64, meta map[string]string) error {
 	h := func(ctx context.Context) error {
-
+		for name, value := range meta {
+			if _, err := m.dao.Create(ctx, projectID, name, value); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
+	return orm.WithTransaction(h)(orm.SetTransactionOpNameToContext(ctx, "tx-add-project"))
+}
+
+// Delete metadatas whose keys are specified in parameter meta, if it is absent, delete all
+func (m *manager) Delete(ctx context.Context, projectID int64, meta ...string) error {
+	return m.dao.Delete(ctx, makeQuery(projectID, meta...))
+}
+
+// Update metadatas
+func (m *manager) Update(ctx context.Context, projectID int64, meta map[string]string) error {
+	if len(meta) == 0 {
+		return nil
+	}
+
+	h := func(ctx context.Context) error {
+		for name, value := range meta {
+			if err := m.dao.Update(ctx, projectID, name, value); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	return orm.WithTransaction(h)(orm.SetTransactionOpNameToContext(ctx, "tx-delete-project"))
+}
+
+// Get metadatas whose keys are specified in parameter meta, if it is absent, get all
+func (m *manager) Get(ctx context.Context, projectID int64, meta ...string) (map[string]string, error) {
+	mds, err := m.dao.List(ctx, makeQuery(projectID, meta...))
+	if err != nil {
+		return nil, err
+	}
+
+	data := map[string]string{}
+	for _, md := range mds {
+		data[md.Name] = md.Value
+	}
+
+	return data, nil
+}
+
+// List metadata according to the name and value
+func (m *manager) List(ctx context.Context, name string, value string) ([]*models.ProjectMetadata, error) {
+	return m.dao.List(ctx, q.New(q.KeyWords{"name": name, "value": value}))
+}
+
+func makeQuery(projectID int64, meta ...string) *q.Query {
+	kw := q.KeyWords{
+		"project_id": projectID,
+	}
+	if len(meta) > 0 {
+		var names []string
+		names = append(names, meta...)
+		kw["name__in"] = names
+	}
+
+	return q.New(kw)
 }

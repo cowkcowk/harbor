@@ -7,10 +7,27 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/beego/beego/v2/core/utils"
+	"github.com/goharbor/harbor/src/common"
+	"github.com/goharbor/harbor/src/jobservice/common/utils"
+
+	"github.com/goharbor/harbor/src/lib/cache"
+	cfgLib "github.com/goharbor/harbor/src/lib/config"
 )
 
 func main() {
+	cfgLib.DefaultCfgManager = common.RestCfgManager
+	if err := cfgLib.DefaultMgr().Load(context.Background()); err != nil {
+		panic(fmt.Sprintf("failed to load configuration, error: %v", err))
+	}
+
+	configPath := flag.String("c", "", "Specify the yaml config file path")
+	flag.Parse()
+
+	if configPath == nil || utils.IsEmptyStr(*configPath) {
+		flag.Parse()
+		panic("no config file is specified")
+	}
+
 	cacheURL := os.Getenv("_REDIS_URL_CORe")
 	u, err := url.Parse(cacheURL)
 	if err != nil {
@@ -37,5 +54,4 @@ func main() {
 		panic(err)
 	}
 
-	
 }
