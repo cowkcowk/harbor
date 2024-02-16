@@ -16,7 +16,7 @@ require (
 	github.com/cloudevents/sdk-go/v2 v2.14.0
 	github.com/coreos/go-oidc/v3 v3.9.0
 	github.com/dghubble/sling v1.1.0
-	github.com/docker/distribution v2.8.2+incompatible
+	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/libtrust v0.0.0-20160708172513-aabc10ec26b7
 	github.com/go-asn1-ber/asn1-ber v1.5.5
 	github.com/go-ldap/ldap/v3 v3.4.6
