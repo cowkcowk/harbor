@@ -19,18 +19,23 @@ package handler
 import (
 	"context"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
 	"github.com/goharbor/harbor/src/common/rbac"
+	rbac_project "github.com/goharbor/harbor/src/common/rbac/project"
+	"github.com/goharbor/harbor/src/common/rbac/system"
 	"github.com/goharbor/harbor/src/common/security"
 	"github.com/goharbor/harbor/src/common/utils"
 	"github.com/goharbor/harbor/src/controller/project"
-
+	"github.com/goharbor/harbor/src/lib"
 	"github.com/goharbor/harbor/src/lib/errors"
 	lib_http "github.com/goharbor/harbor/src/lib/http"
 	"github.com/goharbor/harbor/src/lib/log"
+	"github.com/goharbor/harbor/src/lib/q"
 )
 
 var (
@@ -69,6 +74,7 @@ func (b *BaseAPI) HasPermission(ctx context.Context, action rbac.Action, resourc
 	return s.Can(ctx, action, resource)
 }
 
+// HasProjectPermission returns true when the request has action permission on project subresource
 func (b *BaseAPI) HasProjectPermission(ctx context.Context, projectIDOrName interface{}, action rbac.Action, subresource ...rbac.Resource) bool {
 	projectID, projectName, err := utils.ParseProjectIDOrName(projectIDOrName)
 	if err != nil {
@@ -76,8 +82,149 @@ func (b *BaseAPI) HasProjectPermission(ctx context.Context, projectIDOrName inte
 	}
 
 	if projectName != "" {
-		p, err := base
+		p, err := baseProjectCtl.GetByName(ctx, projectName)
+		if err != nil {
+			log.Errorf("failed to get project %s: %v", projectName, err)
+			if errors.IsNotFoundErr(err) {
+				p = &project.Project{}
+			} else {
+				return false
+			}
+		}
+		if p == nil {
+			log.Warningf("project %s not found", projectName)
+			return false
+		}
+
+		projectID = p.ProjectID
 	}
+
+	resource := rbac_project.NewNamespace(projectID).Resource(subresource...)
+	return b.HasPermission(ctx, action, resource)
+}
+
+// RequireProjectAccess checks the permission against the resources according to the context
+// An error will be returned if it doesn't meet the requirement
+func (b *BaseAPI) RequireProjectAccess(ctx context.Context, projectIDOrName interface{}, action rbac.Action, subresource ...rbac.Resource) error {
+	if b.HasProjectPermission(ctx, projectIDOrName, action, subresource...) {
+		return nil
+	}
+	secCtx, err := b.GetSecurityContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !secCtx.IsAuthenticated() {
+		return errors.UnauthorizedError(nil)
+	}
+	return errors.ForbiddenError(nil)
+}
+
+// RequireSystemAccess checks the system admin permission according to the security context
+func (b *BaseAPI) RequireSystemAccess(ctx context.Context, action rbac.Action, subresource ...rbac.Resource) error {
+	secCtx, err := b.GetSecurityContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !secCtx.IsAuthenticated() {
+		return errors.UnauthorizedError(nil)
+	}
+	resource := system.NewNamespace().Resource(subresource...)
+	if !secCtx.Can(ctx, action, resource) {
+		return errors.ForbiddenError(nil).WithMessage(secCtx.GetUsername())
+	}
+	return nil
+}
+
+// RequireAuthenticated checks it's authenticated according to the security context
+func (b *BaseAPI) RequireAuthenticated(ctx context.Context) error {
+	secCtx, err := b.GetSecurityContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !secCtx.IsAuthenticated() {
+		return errors.UnauthorizedError(nil)
+	}
+	return nil
+}
+
+// RequireSolutionUserAccess check if current user is internal service
+func (b *BaseAPI) RequireSolutionUserAccess(ctx context.Context) error {
+	sec, exist := security.FromContext(ctx)
+	if !exist || !sec.IsSolutionUser() {
+		return errors.UnauthorizedError(nil).WithMessage("only internal service is allowed to call this API")
+	}
+	return nil
+}
+
+// BuildQuery builds the query model according to the query string
+func (b *BaseAPI) BuildQuery(_ context.Context, query, sort *string, pageNumber, pageSize *int64) (*q.Query, error) {
+	var (
+		qs string
+		st string
+		pn int64
+		ps int64
+	)
+	if query != nil {
+		qs = *query
+	}
+	if sort != nil {
+		st = *sort
+	}
+	if pageNumber != nil {
+		pn = *pageNumber
+	}
+	if pageSize != nil {
+		ps = *pageSize
+	}
+	return q.Build(qs, st, pn, ps)
+}
+
+// Links return Links based on the provided pagination information
+func (b *BaseAPI) Links(_ context.Context, u *url.URL, total, pageNumber, pageSize int64) lib.Links {
+	var links lib.Links
+	if pageSize == 0 {
+		return links
+	}
+	ul := *u
+	// prev
+	if pageNumber > 1 && (pageNumber-1)*pageSize < total {
+		q := ul.Query()
+		q.Set("page", strconv.FormatInt(pageNumber-1, 10))
+		// the URL may contain no "page_size", in this case the pageSize in the query is set by
+		// the go-swagger automatically
+		q.Set("page_size", strconv.FormatInt(pageSize, 10))
+		ul.RawQuery = q.Encode()
+		// try to unescape the query
+		if escapedQuery, err := url.QueryUnescape(ul.RawQuery); err == nil {
+			ul.RawQuery = escapedQuery
+		} else {
+			log.Errorf("failed to unescape the query %s: %v", ul.RawQuery, err)
+		}
+		link := &lib.Link{
+			URL: ul.String(),
+			Rel: "prev",
+		}
+		links = append(links, link)
+	}
+	// next
+	if pageSize*pageNumber < total {
+		q := ul.Query()
+		q.Set("page", strconv.FormatInt(pageNumber+1, 10))
+		q.Set("page_size", strconv.FormatInt(pageSize, 10))
+		ul.RawQuery = q.Encode()
+		// try to unescape the query
+		if escapedQuery, err := url.QueryUnescape(ul.RawQuery); err == nil {
+			ul.RawQuery = escapedQuery
+		} else {
+			log.Errorf("failed to unescape the query %s: %v", ul.RawQuery, err)
+		}
+		link := &lib.Link{
+			URL: ul.String(),
+			Rel: "next",
+		}
+		links = append(links, link)
+	}
+	return links
 }
 
 var _ middleware.Responder = &ErrResponder{}
