@@ -12,13 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package handler
+package lib
 
 import (
-	"github.com/goharbor/harbor/src/controller/user"
+	"fmt"
+
+	"github.com/goharbor/harbor/src/pkg/quota/types"
 )
 
-type usersAPI struct {
-	BaseApi
-	ctl user.Controller
+func ValidateQuotaLimit(storageLimit int64) error {
+	if storageLimit <= 0 {
+		if storageLimit != types.UNLIMITED {
+			return fmt.Errorf("invalid non-positive value for quota limit, value=%v", storageLimit)
+		}
+	} else {
+		// storageLimit > 0, there is a max capacity of limited storage
+		if uint64(storageLimit) > types.MaxLimitedValue {
+			return fmt.Errorf("exceeded 1024TB, which is 1125899906842624 Bytes, value=%v", storageLimit)
+		}
+	}
+	return nil
 }

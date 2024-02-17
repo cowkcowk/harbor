@@ -12,13 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package handler
+package types
 
 import (
-	"github.com/goharbor/harbor/src/controller/user"
+	"fmt"
 )
 
-type usersAPI struct {
-	BaseApi
-	ctl user.Controller
+var (
+	resourceValueFormats = map[ResourceName]func(int64) string{
+		ResourceStorage: byteCountToDisplaySize,
+	}
+)
+
+func byteCountToDisplaySize(value int64) string {
+	const unit = 1024
+	if value < unit {
+		return fmt.Sprintf("%d B", value)
+	}
+
+	div, exp := int64(unit), 0
+	for n := value / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.1f %ciB", float64(value)/float64(div), "KMGTPE"[exp])
 }
