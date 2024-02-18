@@ -301,9 +301,17 @@ gen_apis:
 	$(call prepare_docker_image,${SWAGGER_IMAGENAME},${SWAGGER_VERSION},${SWAGGER_IMAGE_BUILD_CMD})
 	$(call swagger_generate_server,api/v2.0/swagger.yaml,src/server/v2.0,harbor)
 
+compile_core: gen_apis
+	@echo "compiling binary for core (golang image)..."
+	@echo $(GOBUILDPATHINCONTAINER)
+	@$(DOCKERCMD) run --rm -v $(BUILDPATH):$(GOBUILDPATHINCONTAINER) -w $(GOBUILDPATH_CORE) $(GOBUILDIMAGE) $(GOIMAGEBUILD_CORE) -o $(GOBUILDPATHINCONTAINER)/$(GOBUILDMAKEPATH_CORE)/$(CORE_BINARYNAME)
+	@echo "Done."
+
 compile_standalone_db_migrator:
 	@echo "compiling binary for standalone db migrator (golang image)..."
 	@$(DOCKERCMD) run --rm -v $(BUILDPATH):$(GOBUILDPATHINCONTAINER) -w $(GOBUILDPATH_STANDALONE_DB_MIGRATOR) $(GOBUILDIMAGE)
+
+compile: compile_core
 
 build:
 # PUSHBASEIMAGE should not be true if BUILD_BASE is not true
