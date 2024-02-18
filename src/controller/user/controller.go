@@ -17,14 +17,27 @@ package user
 import (
 	"context"
 
+	"github.com/goharbor/harbor/src/common"
 	commonmodels "github.com/goharbor/harbor/src/common/models"
+	"github.com/goharbor/harbor/src/common/security"
+	"github.com/goharbor/harbor/src/common/security/local"
+	"github.com/goharbor/harbor/src/jobservice/job"
+	"github.com/goharbor/harbor/src/jobservice/job/impl/gdpr"
+	"github.com/goharbor/harbor/src/lib"
+	"github.com/goharbor/harbor/src/lib/config"
+	"github.com/goharbor/harbor/src/lib/errors"
 	"github.com/goharbor/harbor/src/lib/q"
-
+	"github.com/goharbor/harbor/src/pkg/member"
+	"github.com/goharbor/harbor/src/pkg/oidc"
+	"github.com/goharbor/harbor/src/pkg/task"
 	"github.com/goharbor/harbor/src/pkg/user"
 	"github.com/goharbor/harbor/src/pkg/user/models"
 )
 
-var ()
+var (
+	// Ctl is a global user controller instance
+	Ctl = NewController()
+)
 
 // Controller provides functions to support API/middleware for user management and query
 type Controller interface {
@@ -60,12 +73,171 @@ type Controller interface {
 	OnboardOIDCUser(ctx context.Context, u *commonmodels.User) error
 }
 
+// NewController ...
+func NewController() Controller {
+	return &controller{
+		mgr:         user.New(),
+		oidcMetaMgr: oidc.NewMetaMgr(),
+		memberMgr:   member.Mgr,
+		taskMgr:     task.NewManager(),
+		exeMgr:      task.NewExecutionManager(),
+	}
+}
+
 // Option  option for getting User info
 type Option struct {
 	WithOIDCInfo bool
 }
 
 type controller struct {
-	mgr user.Manager
-	odicMetaMgr
+	mgr         user.Manager
+	oidcMetaMgr oidc.MetaManager
+	memberMgr   member.Manager
+	taskMgr     task.Manager
+	exeMgr      task.ExecutionManager
+}
+
+func (c *controller) UpdateOIDCMeta(ctx context.Context, ou *commonmodels.OIDCUser, cols ...string) error {
+	defaultCols := []string{"secret", "token"}
+	if len(cols) == 0 {
+		cols = defaultCols
+	}
+	return c.oidcMetaMgr.Update(ctx, ou, cols...)
+}
+
+func (c *controller) OnboardOIDCUser(ctx context.Context, u *commonmodels.User) error {
+	if u == nil {
+		return errors.BadRequestError(nil).WithMessage("user model is nil")
+	}
+	if u.OIDCUserMeta == nil {
+		return errors.BadRequestError(nil).WithMessage("OIDC meta of the user model is empty")
+	}
+	uid, err := c.mgr.Create(ctx, u)
+	if err != nil {
+		return errors.Wrap(err, "failed to create user record")
+	}
+	u.UserID = uid
+	u.OIDCUserMeta.UserID = uid
+
+	mid, err2 := c.oidcMetaMgr.Create(ctx, u.OIDCUserMeta)
+	if err2 != nil {
+		return errors.Wrap(err2, "failed to create OIDC metadata record")
+	}
+	u.OIDCUserMeta.ID = int64(mid)
+	return nil
+}
+
+func (c *controller) GetBySubIss(ctx context.Context, sub, iss string) (*commonmodels.User, error) {
+	oidcMeta, err := c.oidcMetaMgr.GetBySubIss(ctx, sub, iss)
+	if err != nil {
+		return nil, err
+	}
+	return c.Get(ctx, oidcMeta.UserID, nil)
+}
+
+func (c *controller) GetByName(ctx context.Context, username string) (*commonmodels.User, error) {
+	return c.mgr.GetByName(ctx, username)
+}
+
+func (c *controller) SetCliSecret(ctx context.Context, id int, secret string) error {
+	return c.oidcMetaMgr.SetCliSecretByUserID(ctx, id, secret)
+}
+
+func (c *controller) Create(ctx context.Context, u *commonmodels.User) (int, error) {
+	return c.mgr.Create(ctx, u)
+}
+
+func (c *controller) UpdateProfile(ctx context.Context, u *commonmodels.User, cols ...string) error {
+	return c.mgr.UpdateProfile(ctx, u, cols...)
+}
+
+func (c *controller) Get(ctx context.Context, id int, opt *Option) (*commonmodels.User, error) {
+	u, err := c.mgr.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	sctx, _ := security.FromContext(ctx)
+	lsc, ok := sctx.(*local.SecurityContext)
+	if ok && lsc.User() != nil && lsc.User().UserID == id {
+		u.AdminRoleInAuth = lsc.User().AdminRoleInAuth
+	}
+	if opt != nil && opt.WithOIDCInfo {
+		oidcMeta, err := c.oidcMetaMgr.GetByUserID(ctx, id)
+		if err != nil {
+			return nil, errors.UnknownError(err)
+		}
+		u.OIDCUserMeta = oidcMeta
+	}
+	return u, nil
+}
+
+func (c *controller) Count(ctx context.Context, query *q.Query) (int64, error) {
+	return c.mgr.Count(ctx, query)
+}
+
+func (c *controller) Delete(ctx context.Context, id int) error {
+	// cleanup project member with the user
+	if err := c.memberMgr.DeleteMemberByUserID(ctx, id); err != nil {
+		return errors.UnknownError(err).WithMessage("delete user failed, user id: %v, cannot delete project user member, error:%v", id, err)
+	}
+	// delete oidc metadata under the user
+	if lib.GetAuthMode(ctx) == common.OIDCAuth {
+		if err := c.oidcMetaMgr.DeleteByUserID(ctx, id); err != nil {
+			return errors.UnknownError(err).WithMessage("delete user failed, user id: %v, cannot delete oidc user, error:%v", id, err)
+		}
+	}
+	gdprSetting, err := config.GDPRSetting(ctx)
+	if err != nil {
+		return errors.UnknownError(err).WithMessage("failed to load GDPR setting: %v", err)
+	}
+
+	if gdprSetting.AuditLogs {
+		userDb, err := c.mgr.Get(ctx, id)
+		if err != nil {
+			return errors.Wrap(err, "unable to get user information")
+		}
+		params := map[string]interface{}{
+			gdpr.UserNameParam: userDb.Username,
+		}
+		execID, err := c.exeMgr.Create(ctx, job.AuditLogsGDPRCompliantVendorType, -1, task.ExecutionTriggerEvent, params)
+		if err != nil {
+			return err
+		}
+		_, err = c.taskMgr.Create(ctx, execID, &task.Job{
+			Name: job.AuditLogsGDPRCompliantVendorType,
+			Metadata: &job.Metadata{
+				JobKind: job.KindGeneric,
+			},
+			Parameters: params,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if gdprSetting.DeleteUser {
+		err = c.mgr.DeleteGDPR(ctx, id)
+	} else {
+		err = c.mgr.Delete(ctx, id)
+	}
+	return err
+}
+
+func (c *controller) List(ctx context.Context, query *q.Query, options ...models.Option) ([]*commonmodels.User, error) {
+	return c.mgr.List(ctx, query, options...)
+}
+
+func (c *controller) UpdatePassword(ctx context.Context, id int, password string) error {
+	return c.mgr.UpdatePassword(ctx, id, password)
+}
+
+func (c *controller) VerifyPassword(ctx context.Context, usernameOrEmail, password string) (bool, error) {
+	rec, err := c.mgr.MatchLocalPassword(ctx, usernameOrEmail, password)
+	if err != nil {
+		return false, err
+	}
+	return rec != nil, nil
+}
+
+func (c *controller) SetSysAdmin(ctx context.Context, id int, adminFlag bool) error {
+	return c.mgr.SetSysAdminFlag(ctx, id, adminFlag)
 }

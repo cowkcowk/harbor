@@ -16,6 +16,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/goharbor/harbor/src/lib/q"
 	"github.com/goharbor/harbor/src/pkg/project/models"
@@ -27,11 +28,35 @@ type Result struct {
 	Error error
 }
 
+// ListAll returns all projects with chunk support
 func ListAll(ctx context.Context, chunkSize int, query *q.Query, options ...Option) <-chan Result {
 	ch := make(chan Result, chunkSize)
 
 	go func() {
 		defer close(ch)
+
+		query = q.MustClone(query)
+		query.PageNumber = 1
+		query.PageSize = int64(chunkSize)
+
+		for {
+			projects, err := Ctl.List(ctx, query, options...)
+			if err != nil {
+				format := "failed to list projects at page %d with page size %d, error :%v"
+				ch <- Result{Error: fmt.Errorf(format, query.PageNumber, query.PageSize, err)}
+				return
+			}
+
+			for _, p := range projects {
+				ch <- Result{Data: p}
+			}
+
+			if len(projects) < chunkSize {
+				break
+			}
+
+			query.PageNumber++
+		}
 	}()
 
 	return ch
